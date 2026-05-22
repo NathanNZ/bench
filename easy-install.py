@@ -145,10 +145,11 @@ def start_prod(
     image: str = None,
     is_https: bool = True,
     http_port: str = None,
+    runtime: str = "docker",
 ):
     if not check_repo_exists():
         clone_frappe_docker_repo()
-    install_container_runtime()
+    install_container_runtime(runtime)
 
     compose_file_name = os.path.join(
         os.path.expanduser("~"),
@@ -229,9 +230,7 @@ def start_prod(
             )
 
         try:
-            command = [
-                "docker",
-                "compose",
+            command = compose_cmd(runtime) + [
                 "--project-name",
                 project,
                 "-f",
@@ -267,9 +266,7 @@ def start_prod(
 
     try:
         # Starting with generated compose file
-        command = [
-            "docker",
-            "compose",
+        command = compose_cmd(runtime) + [
             "-p",
             project,
             "-f",
@@ -303,6 +300,7 @@ def setup_prod(
     apps: List[str] = [],
     is_https: bool = False,
     http_port: str = None,
+    runtime: str = "docker",
 ) -> None:
     if len(sites) == 0:
         sites = ["site1.localhost"]
@@ -316,10 +314,11 @@ def setup_prod(
         image=image,
         is_https=is_https,
         http_port=http_port,
+        runtime=runtime,
     )
 
     for sitename in sites:
-        create_site(sitename, project, db_pass, admin_pass, apps)
+        create_site(sitename, project, db_pass, admin_pass, apps, runtime)
 
     cprint(
         f"MariaDB root password is {db_pass}",
@@ -343,6 +342,7 @@ def update_prod(
     cronstring: str = None,
     is_https: bool = False,
     http_port: str = None,
+    runtime: str = "docker",
 ) -> None:
     start_prod(
         project=project,
@@ -351,19 +351,18 @@ def update_prod(
         cronstring=cronstring,
         is_https=is_https,
         http_port=http_port,
+        runtime=runtime,
     )
-    migrate_site(project=project)
+    migrate_site(project=project, runtime=runtime)
 
 
-def setup_dev_instance(project: str):
+def setup_dev_instance(project: str, runtime: str = "docker"):
     if not check_repo_exists():
         clone_frappe_docker_repo()
-    install_container_runtime()
+    install_container_runtime(runtime)
 
     try:
-        command = [
-            "docker",
-            "compose",
+        command = compose_cmd(runtime) + [
             "-f",
             "devcontainer-example/docker-compose.yml",
             "--project-name",
@@ -436,9 +435,38 @@ def install_docker():
 def install_container_runtime(runtime="docker"):
     if which(runtime) is not None:
         cprint(runtime.title() + " is already installed", level=2)
+        if runtime == "podman":
+            ensure_podman_compose()
         return
     if runtime == "docker":
         install_docker()
+    if runtime == "podman":
+        if platform.system() in ["Darwin", "Windows"]:
+            cprint(
+                "Podman is not installed. Please install Podman Desktop and initialize a podman machine.",
+                level=1,
+            )
+        else:
+            cprint(
+                "Podman is not installed. Please install Podman and re-run this script.",
+                level=1,
+            )
+        sys.exit(1)
+
+
+def ensure_podman_compose():
+    try:
+        subprocess.run(
+            ["podman", "compose", "version"],
+            check=True,
+            capture_output=True,
+        )
+    except Exception:
+        cprint(
+            "Podman compose plugin is required. Please install/enable podman-compose plugin, for desktop take a look at (https://podman-desktop.io/docs/compose/setting-up-compose), and for other installations of podman please refer to (https://github.com/containers/podman-compose#installation)",
+            level=1,
+        )
+        sys.exit(1)
 
 
 def create_site(
@@ -447,12 +475,11 @@ def create_site(
     db_pass: str,
     admin_pass: str,
     apps: List[str] = [],
+    runtime: str = "docker",
 ):
     apps = apps or []
     cprint(f"\nCreating site: {sitename} \n", level=3)
-    command = [
-        "docker",
-        "compose",
+    command = compose_cmd(runtime) + [
         "-p",
         project,
         "exec",
@@ -481,7 +508,7 @@ def create_site(
         cprint(f"Bench Site creation failed for {sitename}\n", e)
 
 
-def migrate_site(project: str):
+def migrate_site(project: str, runtime: str = "docker"):
     cprint(f"\nMigrating sites for {project}", level=3)
 
     exec_command(
@@ -492,17 +519,21 @@ def migrate_site(project: str):
             "all",
             "migrate",
         ],
+        runtime=runtime,
     )
 
 
-def exec_command(project: str, command: List[str] = [], interactive_terminal=False):
+def exec_command(
+    project: str,
+    command: List[str] = [],
+    interactive_terminal=False,
+    runtime: str = "docker",
+):
     if not command:
         command = ["echo", '"Please execute a command"']
 
     cprint(f"\nExecuting Command:\n{' '.join(command)}", level=3)
-    exec_command = [
-        "docker",
-        "compose",
+    exec_command = compose_cmd(runtime) + [
         "-p",
         project,
         "exec",
@@ -531,6 +562,13 @@ def add_project_option(parser: argparse.ArgumentParser):
         "--project",
         help="Project Name",
         default="frappe",
+    )
+    parser.add_argument(
+        "-r",
+        "--runtime",
+        choices=["docker", "podman"],
+        default="docker",
+        help="Container runtime to use",
     )
     return parser
 
@@ -662,6 +700,13 @@ def add_develop_parser(subparsers: argparse.ArgumentParser):
     parser.add_argument(
         "-n", "--project", default="frappe", help="Compose project name"
     )
+    parser.add_argument(
+        "-r",
+        "--runtime",
+        choices=["docker", "podman"],
+        default="docker",
+        help="Container runtime to use",
+    )
 
 
 def add_upgrade_parser(subparsers: argparse.ArgumentParser):
@@ -683,10 +728,11 @@ def build_image(
     tags: List[str],
     python_version: str,
     node_version: str,
+    runtime: str = "docker",
 ):
     if not check_repo_exists():
         clone_frappe_docker_repo()
-    install_container_runtime()
+    install_container_runtime(runtime)
 
     if not tags:
         tags = ["custom-apps:latest"]
@@ -702,11 +748,7 @@ def build_image(
         logging.error("Unable to base64 encode apps.json", exc_info=True)
         cprint("\nUnable to base64 encode apps.json\n\n", "[ERROR]: ", e, level=1)
 
-    command = [
-        which("docker"),
-        "build",
-        "--progress=plain",
-    ]
+    command = runtime_cmd(runtime) + ["build", "--progress=plain"]
 
     for tag in tags:
         command.append(f"--tag={tag}")
@@ -735,12 +777,20 @@ def build_image(
         try:
             for tag in tags:
                 subprocess.run(
-                    [which("docker"), "push", tag],
+                    runtime_cmd(runtime) + ["push", tag],
                     check=True,
                 )
         except Exception as e:
             logging.error("Image push failed", exc_info=True)
             cprint("\nImage push failed\n\n", "[ERROR]: ", e, level=1)
+
+
+def runtime_cmd(runtime: str) -> List[str]:
+    return [runtime]
+
+
+def compose_cmd(runtime: str) -> List[str]:
+    return [runtime, "compose"]
 
 
 def get_args_parser():
@@ -789,6 +839,7 @@ if __name__ == "__main__":
             containerfile_path=args.containerfile,
             python_version=args.python_version,
             node_version=args.node_version,
+            runtime=args.runtime,
         )
         if args.deploy:
             setup_prod(
@@ -801,6 +852,7 @@ if __name__ == "__main__":
                 apps=args.apps,
                 is_https=not args.no_ssl,
                 http_port=args.http_port,
+                runtime=args.runtime,
             )
         elif args.upgrade:
             update_prod(
@@ -810,6 +862,7 @@ if __name__ == "__main__":
                 cronstring=args.backup_schedule,
                 is_https=not args.no_ssl,
                 http_port=args.http_port,
+                runtime=args.runtime,
             )
 
     elif args.subcommand == "deploy":
@@ -828,11 +881,12 @@ if __name__ == "__main__":
             apps=args.apps,
             is_https=not args.no_ssl,
             http_port=args.http_port,
+            runtime=args.runtime,
         )
     elif args.subcommand == "develop":
         cprint("\nSetting Up Development Instance\n", level=2)
         logging.info("Running Development Setup")
-        setup_dev_instance(args.project)
+        setup_dev_instance(args.project, args.runtime)
     elif args.subcommand == "upgrade":
         cprint("\nUpgrading Production Instance\n", level=2)
         logging.info("Upgrading Development Setup")
@@ -843,6 +897,7 @@ if __name__ == "__main__":
             is_https=not args.no_ssl,
             cronstring=args.backup_schedule,
             http_port=args.http_port,
+            runtime=args.runtime,
         )
     elif args.subcommand == "exec":
         cprint(f"\nExec into {args.project} backend\n", level=2)
@@ -851,4 +906,5 @@ if __name__ == "__main__":
             project=args.project,
             command=["bash"],
             interactive_terminal=True,
+            runtime=args.runtime,
         )
