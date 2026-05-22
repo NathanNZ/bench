@@ -214,6 +214,10 @@ def get_frappe_docker_path():
     return os.path.join(os.getcwd(), "frappe_docker")
 
 
+def get_compose_file_path(project: str) -> str:
+    return os.path.join(os.path.expanduser("~"), f"{project}-compose.yml")
+
+
 def patch_compose_for_podman(frappe_docker_dir: str) -> None:
     compose_path = os.path.join(frappe_docker_dir, "compose.yaml")
     if not os.path.exists(compose_path):
@@ -253,10 +257,7 @@ def start_prod(
         clone_frappe_docker_repo()
     install_container_runtime(runtime)
 
-    compose_file_name = os.path.join(
-        os.path.expanduser("~"),
-        f"{project}-compose.yml",
-    )
+    compose_file_name = get_compose_file_path(project)
 
     env_file_dir = os.path.expanduser("~")
     env_file_name = f"{project}.env"
@@ -620,9 +621,16 @@ def create_site(
 ):
     apps = apps or []
     cprint(f"\nCreating site: {sitename} \n", level=3)
+    compose_file_path = get_compose_file_path(project)
+    if not os.path.exists(compose_file_path):
+        cprint(f"Compose file not found: {compose_file_path}", level=1)
+        sys.exit(1)
+
     command = compose_cmd(runtime) + [
         "-p",
         project,
+        "-f",
+        compose_file_path,
         "exec",
         "backend",
         "bench",
@@ -674,9 +682,16 @@ def exec_command(
         command = ["echo", '"Please execute a command"']
 
     cprint(f"\nExecuting Command:\n{' '.join(command)}", level=3)
+    compose_file_path = get_compose_file_path(project)
+    if not os.path.exists(compose_file_path):
+        cprint(f"Compose file not found: {compose_file_path}", level=1)
+        sys.exit(1)
+
     exec_command = compose_cmd(runtime) + [
         "-p",
         project,
+        "-f",
+        compose_file_path,
         "exec",
     ]
 
