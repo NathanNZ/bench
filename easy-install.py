@@ -214,6 +214,25 @@ def get_frappe_docker_path():
     return os.path.join(os.getcwd(), "frappe_docker")
 
 
+def patch_compose_for_podman(frappe_docker_dir: str) -> None:
+    compose_path = os.path.join(frappe_docker_dir, "compose.yaml")
+    if not os.path.exists(compose_path):
+        return
+
+    with open(compose_path) as f:
+        content = f.read()
+
+    # Podman compose can mis-handle nested default expansion.
+    pattern = r"\$\{CUSTOM_TAG:-\$\{ERPNEXT_VERSION:-([^}]+)\}\}"
+    updated, count = re.subn(pattern, r"${CUSTOM_TAG:-\1}", content)
+    if not count:
+        return
+
+    with open(compose_path, "w") as f:
+        f.write(updated)
+    logging.info("Patched compose.yaml to avoid nested defaults for podman compose.")
+
+
 def check_repo_exists() -> bool:
     return os.path.exists(get_frappe_docker_path())
 
@@ -247,6 +266,9 @@ def start_prod(
     )
 
     frappe_docker_dir = get_frappe_docker_path()
+
+    if runtime == "podman":
+        patch_compose_for_podman(frappe_docker_dir)
 
     cprint(
         f"\nPlease refer to {env_file_path} to know which keys to set\n\n",
