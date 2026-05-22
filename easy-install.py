@@ -146,30 +146,54 @@ def write_to_env(
     sites_rule = build_sites_rule(sites)
     example_env = get_from_env(frappe_docker_dir, "example.env")
     erpnext_version = erpnext_version or example_env["ERPNEXT_VERSION"]
-    env_file_lines = [
-        # defaults to latest version of ERPNext
-        f"ERPNEXT_VERSION={erpnext_version}\n",
-        f"DB_PASSWORD={db_pass}\n",
-        "DB_HOST=db\n",
-        "DB_PORT=3306\n",
-        "REDIS_CACHE=redis-cache:6379\n",
-        "REDIS_QUEUE=redis-queue:6379\n",
-        "REDIS_SOCKETIO=redis-socketio:6379\n",
-        f"LETSENCRYPT_EMAIL={email}\n",
-        f"SITE_ADMIN_PASS={admin_pass}\n",
-        f"SITES_RULE={sites_rule}\n",
-        "PULL_POLICY=missing\n",
-        f'BACKUP_CRONSTRING="{cronstring}"\n',
-    ]
+    env_values = {
+        "ERPNEXT_VERSION": erpnext_version,
+        "DB_PASSWORD": db_pass,
+        "DB_HOST": "db",
+        "DB_PORT": "3306",
+        "REDIS_CACHE": "redis-cache:6379",
+        "REDIS_QUEUE": "redis-queue:6379",
+        "REDIS_SOCKETIO": "redis-socketio:6379",
+        "LETSENCRYPT_EMAIL": email,
+        "SITE_ADMIN_PASS": admin_pass,
+        "SITES_RULE": sites_rule,
+        "PULL_POLICY": "missing",
+        "BACKUP_CRONSTRING": f'"{cronstring}"',
+    }
 
     if http_port:
-        env_file_lines.append(f"HTTP_PUBLISH_PORT={http_port}\n")
+        env_values["HTTP_PUBLISH_PORT"] = http_port
 
     if custom_image:
-        env_file_lines.append(f"CUSTOM_IMAGE={custom_image}\n")
+        env_values["CUSTOM_IMAGE"] = custom_image
 
     if custom_tag:
-        env_file_lines.append(f"CUSTOM_TAG={custom_tag}\n")
+        env_values["CUSTOM_TAG"] = custom_tag
+
+    env_file_lines = []
+    seen_keys = set()
+
+    if os.path.exists(out_file):
+        with open(out_file) as existing:
+            for line in existing:
+                if line.startswith("#") or not line.strip() or "=" not in line:
+                    env_file_lines.append(line)
+                    continue
+
+                key, _ = line.split("=", 1)
+                key = key.strip()
+                if key in env_values:
+                    env_file_lines.append(f"{key}={env_values[key]}\n")
+                    seen_keys.add(key)
+                else:
+                    env_file_lines.append(line)
+
+    if env_file_lines:
+        env_file_lines.append("\n")
+
+    for key, value in env_values.items():
+        if key not in seen_keys:
+            env_file_lines.append(f"{key}={value}\n")
 
     with open(os.path.join(out_file), "w") as f:
         f.writelines(env_file_lines)
