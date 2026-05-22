@@ -408,8 +408,6 @@ def setup_prod(
         http_port=http_port,
         runtime=runtime,
         confirm_site_mismatch=confirm_site_mismatch,
-        runtime=runtime,
-        confirm_site_mismatch=confirm_site_mismatch,
     )
 
     for sitename in sites:
@@ -447,8 +445,6 @@ def update_prod(
         cronstring=cronstring,
         is_https=is_https,
         http_port=http_port,
-        runtime=runtime,
-        confirm_site_mismatch=confirm_site_mismatch,
         runtime=runtime,
         confirm_site_mismatch=confirm_site_mismatch,
     )
