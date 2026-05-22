@@ -633,7 +633,7 @@ def add_build_parser(subparsers: argparse.ArgumentParser):
         action="store_true",
     )
     parser.add_argument(
-        "-r",
+        "-f",
         "--frappe-path",
         help="Frappe Repository to use, default: https://github.com/frappe/frappe",
         default="https://github.com/frappe/frappe",
